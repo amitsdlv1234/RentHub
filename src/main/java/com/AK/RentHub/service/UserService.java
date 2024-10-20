@@ -1,30 +1,21 @@
 package com.AK.RentHub.service;
 
 import com.AK.RentHub.model.User;
-import com.AK.RentHub.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.crypto.password.PasswordEncoder; // Import the interface
-import org.springframework.stereotype.Service;
 
-@Service
-public class UserService {
+public interface UserService {
 
-    @Autowired
-    private UserRepository userRepository;
+    // Method to register a user
+    void registerUser(User user);
 
-    @Autowired
-    private PasswordEncoder passwordEncoder; // Change to PasswordEncoder
+    // Method to update user password or other details
+    void updateUser(User user, String newPassword);
 
-    public User registerUser(User user) {
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
-        return userRepository.save(user);
-    }
-    public void updateUser(User user,String newPassword) {
-        user.setPassword(passwordEncoder.encode(newPassword));
-        userRepository.save(user);
-    }
+    // Method to find user by email
+    User findByEmail(String email);
 
-    public User findByEmail(String email) {
-        return userRepository.findByEmail(email).orElse(null);
-    }
+    // Method to find user by mobile number
+    User findByMobileNo(String mobileNo);
+
+    // Method to verify OTP and activate user
+    void activateUser(User user);
 }

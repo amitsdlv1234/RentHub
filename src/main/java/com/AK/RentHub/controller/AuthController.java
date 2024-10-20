@@ -1,18 +1,13 @@
 package com.AK.RentHub.controller;
 
+import com.AK.RentHub.model.AuthResponse;  // Import the new AuthResponse model
 import com.AK.RentHub.model.User;
 import com.AK.RentHub.security.JwtUtil;
-import com.AK.RentHub.service.OtpService;
 import com.AK.RentHub.service.UserService;
-import io.jsonwebtoken.Claims;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
@@ -25,99 +20,57 @@ public class AuthController {
     private JwtUtil jwtUtil;
 
     @Autowired
-    private OtpService otpService;
-
-    @Autowired
     private BCryptPasswordEncoder passwordEncoder;
 
+    // Register User with either email or mobile number
     @PostMapping("/register")
-    public ResponseEntity<String> register(@RequestBody User user) {
-        userService.registerUser(user);
-        return ResponseEntity.ok("User registered successfully");
+    public ResponseEntity<AuthResponse> register(@RequestBody User user) {
+        try {
+            if (user.getEmail() == null) {
+                return ResponseEntity.badRequest().body(new AuthResponse("Email must be provided.", null));
+            }
+            if (user.getPassword() == null || user.getPassword().isEmpty()) {
+                return ResponseEntity.badRequest().body(new AuthResponse("Password is required.", null));
+            }
+            User found = userService.findByEmail(user.getEmail());
+            if (found != null) {
+                return ResponseEntity.badRequest().body(new AuthResponse("Email ID is already registered.", null));
+            }
+
+            // Encrypt the password before saving
+            user.setPassword(passwordEncoder.encode(user.getPassword()));
+            // Save the user in the database
+            userService.registerUser(user);
+
+            return ResponseEntity.ok(new AuthResponse("User registered successfully.", null));
+        } catch (Exception e) {
+            System.out.println("Internal Server Error :" + e);
+            return ResponseEntity.status(500).body(new AuthResponse("Internal Server Error", null));
+        }
     }
 
+    // Login using either email or mobile number and password
     @PostMapping("/login")
-    public ResponseEntity<String> login(@RequestBody User user) {
-        User foundUser = userService.findByEmail(user.getEmail());
-        if (foundUser != null && passwordEncoder.matches(user.getPassword(), foundUser.getPassword())) {
-            String token = jwtUtil.generateToken(user.getEmail());
-            return ResponseEntity.ok("Login successful, JWT token: " + token);
-        }
-        return ResponseEntity.status(401).body("Invalid credentials");
-    }
-
-    // OTP functionalities for password update or forgotten password
-    @PostMapping("/request-otp/forgot")
-    public ResponseEntity<Map<String, String>> requestOtp(@RequestBody User user) {
-        User foundUser = userService.findByEmail(user.getEmail());
-
-        if (foundUser != null) {
-            // Generate the OTP
-            String otp = otpService.generateOtp(foundUser.getEmail());
-            System.out.println("OTP: " + otp);
-
-            // Generate the OTP Token (used for OTP validation)
-            String otpToken = jwtUtil.generateTokenForOtp(foundUser.getEmail(), otp);
-
-            // Create a response map to return both tokens
-            Map<String, String> response = new HashMap<>();
-            response.put("otpToken", otpToken);   // Token for OTP validation
-
-            return ResponseEntity.ok(response);
-        }
-
-        // If user not found, return error response
-        return ResponseEntity.status(401).body(Collections.singletonMap("error", "Email not registered"));
-    }
-
-
-    @PostMapping("/verify-otp")
-    public ResponseEntity<String> verifyOtp(@RequestParam String otpToken, @RequestParam String otp) {
+    public ResponseEntity<AuthResponse> login(@RequestBody User user) {
         try {
-            // Extract claims from the JWT token (this includes the OTP and email)
-            Claims claims = jwtUtil.extractClaims(otpToken);
-
-            // Extract email and OTP from the token
-            String tokenEmail = claims.getSubject();  // The subject is the email
-            String tokenOtp = (String) claims.get("otp");  // The OTP is stored in claims
-
-            // Validate the OTP
-            if (tokenOtp.equals(otp)) {
-                // OTP is correct, now generate a new JWT token to allow password update
-                String passwordUpdateToken = jwtUtil.generateToken(tokenEmail);
-
-                // Return the new token in the response, which will be used for updating the password
-                return ResponseEntity.ok("OTP verified successfully. Use this token to update your password: " + passwordUpdateToken);
+            User foundUser;
+            if (user.getEmail() != null) {
+                foundUser = userService.findByEmail(user.getEmail());
+            } else if (user.getMobileNo() != null) {
+                foundUser = userService.findByMobileNo(user.getMobileNo());
             } else {
-                return ResponseEntity.status(401).body("Invalid OTP");
+                return ResponseEntity.badRequest().body(new AuthResponse("Email or Mobile number must be provided for login.", null));
             }
+            if (foundUser == null) return ResponseEntity.badRequest().body(new AuthResponse("User not found", null));
+
+            if (passwordEncoder.matches(user.getPassword(), foundUser.getPassword())) {
+                String token = jwtUtil.generateToken(foundUser.getEmail());
+                return ResponseEntity.ok(new AuthResponse("Login successful.", token));
+            }
+            return ResponseEntity.status(401).body(new AuthResponse("Invalid credentials", null));
         } catch (Exception e) {
-            return ResponseEntity.status(401).body("Invalid or expired token");
+            System.out.println("Internal Server Error :" + e);
+            return ResponseEntity.status(500).body(new AuthResponse("Internal Server Error", null));
         }
     }
-
-
-    @PostMapping("/update-password")
-    public ResponseEntity<String> updatePassword(@RequestParam String passwordUpdateToken, @RequestParam String newPassword) {
-        try {
-            // Extract the email from the password update token
-            String email = jwtUtil.extractUserName(passwordUpdateToken);
-
-            // Find the user by email
-            User user = userService.findByEmail(email);
-            System.out.println(user);
-
-            if (user != null) {
-
-                // Save the updated user to the database
-                userService.updateUser(user,newPassword);
-
-                return ResponseEntity.ok("Password updated successfully");
-            }
-            return ResponseEntity.status(404).body("User not found");
-        } catch (Exception e) {
-            return ResponseEntity.status(401).body("Invalid or expired token");
-        }
-    }
-
 }
